@@ -1,0 +1,202 @@
+#!/system/bin/sh
+# Control script for Dropbear SSH Server
+
+CONFIG_FILE="/data/adb/sshserver/config.env"
+PIDFILE="/data/adb/sshserver/dropbear.pid"
+HOSTKEY="/data/adb/sshserver/keys/dropbear_ed25519_host_key"
+
+# Ensure root utilities, Magisk, and our bin folder are in PATH
+export PATH=/data/adb/magisk:/data/adb/sshserver/bin:$PATH:/system/bin:/system/xbin:/vendor/bin:/apex/com.android.runtime/bin:/data/data/com.termux/files/usr/bin
+export HOME=/data/adb/sshserver
+
+# Load config
+PORT=22
+ALLOW_PASSWORD=1
+ALLOW_ROOT=1
+PASSWORD_HASH=""
+
+if [ -f "$CONFIG_FILE" ]; then
+  . "$CONFIG_FILE"
+fi
+
+PORT=${PORT:-22}
+ALLOW_PASSWORD=${ALLOW_PASSWORD:-1}
+ALLOW_ROOT=${ALLOW_ROOT:-1}
+
+case "$1" in
+  start)
+    if [ -f "$PIDFILE" ]; then
+      PID=$(cat "$PIDFILE" 2>/dev/null)
+      if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+        echo "SSH Server is already running (PID $PID)"
+        exit 0
+      fi
+    fi
+
+    # Check if hostkey exists, if not generate it
+    if [ ! -f "$HOSTKEY" ]; then
+      echo "Generating Ed25519 host key at $HOSTKEY..."
+      /data/adb/sshserver/bin/dropbearkey -t ed25519 -f "$HOSTKEY"
+    fi
+
+    # Compose arguments
+    ARGS="-r $HOSTKEY -p $PORT -P $PIDFILE -E -e -K 30"
+    if [ "$ALLOW_PASSWORD" = "0" ]; then
+      ARGS="$ARGS -s"
+    fi
+    if [ "$ALLOW_ROOT" = "0" ]; then
+      ARGS="$ARGS -w"
+    fi
+
+    echo "Starting Dropbear SSH server on port $PORT..."
+    /data/adb/sshserver/bin/dropbear $ARGS
+    if [ $? -eq 0 ]; then
+      echo "SSH Server started successfully."
+    else
+      echo "Failed to start SSH Server."
+    fi
+    ;;
+  stop)
+    if [ -f "$PIDFILE" ]; then
+      PID=$(cat "$PIDFILE" 2>/dev/null)
+      if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+        echo "Stopping SSH Server (PID $PID)..."
+        kill "$PID"
+        rm -f "$PIDFILE"
+        echo "SSH Server stopped."
+      else
+        echo "SSH Server is not running, cleaning stale PID file."
+        rm -f "$PIDFILE"
+      fi
+    else
+      echo "SSH Server is not running."
+    fi
+    ;;
+  restart)
+    $0 stop
+    sleep 1
+    $0 start
+    ;;
+  status)
+    if [ -f "$PIDFILE" ]; then
+      PID=$(cat "$PIDFILE" 2>/dev/null)
+      if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+        echo "SSH Server is running (PID $PID) on port $PORT."
+      else
+        echo "SSH Server PID file found but process is not running (stale PID)."
+      fi
+    else
+      echo "SSH Server is not running."
+    fi
+    ;;
+  passwd)
+    # Check if we have a way to generate the hash
+    GEN_METHOD=""
+    if which openssl >/dev/null 2>&1; then
+      GEN_METHOD="openssl"
+    elif [ -x /data/adb/magisk/busybox ] && /data/adb/magisk/busybox --list | grep -q "^cryptpw$"; then
+      GEN_METHOD="magisk-busybox"
+    elif which busybox >/dev/null 2>&1 && busybox --list | grep -q "^cryptpw$"; then
+      GEN_METHOD="system-busybox"
+    elif which python3 >/dev/null 2>&1; then
+      if python3 -c "import crypt" 2>/dev/null; then
+        GEN_METHOD="python3"
+      fi
+    fi
+
+    if [ -z "$GEN_METHOD" ]; then
+      echo "------------------------------------------------------------------"
+      echo "ERROR: No password hashing tool (openssl/busybox/python) found."
+      echo "To change the password, please generate a SHA-512 crypt hash on your PC:"
+      echo "  openssl passwd -6 'your_password'"
+      echo "Then, open /data/adb/sshserver/config.env and set:"
+      echo "  PASSWORD_HASH='your_generated_hash'"
+      echo "------------------------------------------------------------------"
+      exit 1
+    fi
+
+    # Read password interactively
+    echo -n "Enter new root password: "
+    stty -echo 2>/dev/null
+    read -r NEW_PASS
+    stty echo 2>/dev/null
+    echo ""
+
+    echo -n "Confirm new root password: "
+    stty -echo 2>/dev/null
+    read -r CONFIRM_PASS
+    stty echo 2>/dev/null
+    echo ""
+
+    if [ "$NEW_PASS" != "$CONFIRM_PASS" ]; then
+      echo "Error: Passwords do not match!"
+      exit 1
+    fi
+
+    if [ -z "$NEW_PASS" ]; then
+      echo "Error: Password cannot be empty!"
+      exit 1
+    fi
+
+    # Generate hash based on available tool
+    HASH=""
+    case "$GEN_METHOD" in
+      openssl)
+        HASH=$(openssl passwd -6 "$NEW_PASS" 2>/dev/null)
+        ;;
+      magisk-busybox)
+        HASH=$(echo -n "$NEW_PASS" | /data/adb/magisk/busybox cryptpw -m sha512 2>/dev/null)
+        ;;
+      system-busybox)
+        HASH=$(echo -n "$NEW_PASS" | busybox cryptpw -m sha512 2>/dev/null)
+        ;;
+      python3)
+        HASH=$(python3 -c "import crypt; print(crypt.crypt('$NEW_PASS', crypt.mksalt(crypt.METHOD_SHA512)))" 2>/dev/null)
+        ;;
+    esac
+
+    if [ -z "$HASH" ]; then
+      echo "Error: Failed to generate password hash!"
+      exit 1
+    fi
+
+    # Save to config.env with SINGLE QUOTES to avoid shell expansion ($)
+    if [ -f "$CONFIG_FILE" ]; then
+      TEMP_CONFIG=$(grep -v "^PASSWORD=" "$CONFIG_FILE" | grep -v "^PASSWORD_HASH=")
+      echo "$TEMP_CONFIG" > "$CONFIG_FILE"
+      echo "PASSWORD_HASH='$HASH'" >> "$CONFIG_FILE"
+      echo "PASSWORD=''" >> "$CONFIG_FILE"
+    else
+      echo "PORT=22" > "$CONFIG_FILE"
+      echo "ALLOW_PASSWORD=1" >> "$CONFIG_FILE"
+      echo "ALLOW_ROOT=1" >> "$CONFIG_FILE"
+      echo "PASSWORD_HASH='$HASH'" >> "$CONFIG_FILE"
+      echo "PASSWORD=''" >> "$CONFIG_FILE"
+    fi
+
+    # Write immediately to systemless passwd file
+    MOD_PASSWD="/data/adb/modules/sshserverpwd/system/etc/passwd"
+    if [ -d "/data/adb/modules/sshserverpwd/system/etc" ]; then
+      echo "root:$HASH:0:0:root:/data/adb/sshserver:/system/bin/sh" > "$MOD_PASSWD"
+      chmod 644 "$MOD_PASSWD"
+      chown 0:0 "$MOD_PASSWD"
+
+      # Try to bind-mount to system instantly so it works without rebooting
+      if mount -o bind "$MOD_PASSWD" /system/etc/passwd 2>/dev/null; then
+        echo "Password updated successfully! Applied instantly."
+      else
+        if mount -o bind "$MOD_PASSWD" /etc/passwd 2>/dev/null; then
+          echo "Password updated successfully! Applied instantly."
+        else
+          echo "Password updated! Please reboot your device to apply."
+        fi
+      fi
+    else
+      echo "Password updated in config! Please reboot your device to apply."
+    fi
+    ;;
+  *)
+    echo "Usage: sshserverctl {start|stop|restart|status|passwd}"
+    exit 1
+    ;;
+esac
