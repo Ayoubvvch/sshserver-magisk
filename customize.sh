@@ -28,7 +28,10 @@ chmod 700 /data/adb/sshserver/.ssh
 
 # Copy binaries shipped in module
 if [ -f "$MODDIR/sshserver/bin/dropbear" ] && [ -f "$MODDIR/sshserver/bin/dropbearkey" ] && [ -f "$MODDIR/sshserver/sftp" ]; then
-  cp "$MODDIR/sshserver/bin/dropbear" /data/adb/sshserver/bin/dropbear &&   cp "$MODDIR/sshserver/bin/dropbearkey" /data/adb/sshserver/bin/dropbearkey &&   cp "$MODDIR/sshserver/sftp" /data/adb/sshserver/sftp &&   chmod 700 /data/adb/sshserver/bin/dropbear /data/adb/sshserver/bin/dropbearkey /data/adb/sshserver/sftp
+  cp "$MODDIR/sshserver/bin/dropbear" /data/adb/sshserver/bin/dropbear && \
+  cp "$MODDIR/sshserver/bin/dropbearkey" /data/adb/sshserver/bin/dropbearkey && \
+  cp "$MODDIR/sshserver/sftp" /data/adb/sshserver/sftp && \
+  chmod 700 /data/adb/sshserver/bin/dropbear /data/adb/sshserver/bin/dropbearkey /data/adb/sshserver/sftp
   log "- Copied dropbear & sftp binaries"
 else
   abort "! ERROR: Missing binaries in module package. Installation aborted."
@@ -59,6 +62,20 @@ EOF
   log "- Configured root shell environment"
 fi
 
+# Configure WebUI permissions
+if [ -d "$MODDIR/webroot" ]; then
+  log "- Configuring KsuWebUI interface..."
+  set_perm_recursive "$MODDIR/webroot" 0 0 0755 0644
+fi
+
+if [ -f "$MODDIR/icon.png" ]; then
+  chmod 0644 "$MODDIR/icon.png" 2>/dev/null || true
+fi
+
+# Set permissions for system binaries
+chmod 0755 "$MODDIR/system/bin/sshserverctl" 2>/dev/null || true
+chown 0:0 "$MODDIR/system/bin/sshserverctl" 2>/dev/null || true
+
 # Verification
 if [ -x /data/adb/sshserver/bin/dropbear ] && [ -x /data/adb/sshserver/bin/dropbearkey ] && [ -x /data/adb/sshserver/sftp ]; then
   OK=1
@@ -66,8 +83,8 @@ fi
 
 if [ "$OK" = "1" ]; then
   log "- Installation completed successfully!"
-  log "- Default password is 'crdroid' (change via 'sshserverctl passwd')"
-  log "- Place public keys in /data/adb/sshserver/.ssh/authorized_keys"
+  log "- Default password is 'crdroid' (change via WebUI or 'sshserverctl passwd')"
+  log "- WebUI: Open 'KsuWebUI' app to access the SSH Server Dashboard!"
   log "- Please reboot your device to start the SSH server."
 else
   abort "! Installation incomplete or verification failed."

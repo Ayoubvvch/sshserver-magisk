@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <title>Dropbear SSH Server</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-hover: #1f242c;
+      --card-bg: rgba(22, 27, 34, 0.85);
+      --border: rgba(240, 246, 252, 0.1);
+      --accent: #388bfd;
+      --accent-gradient: linear-gradient(135deg, #388bfd 0%, #1f6feb 100%);
+      --accent-glow: rgba(56, 139, 253, 0.25);
+      --success: #3fb950;
+      --success-glow: rgba(63, 185, 80, 0.25);
+      --warning: #d29922;
+      --danger: #f85149;
+      --danger-glow: rgba(248, 81, 73, 0.2);
+      --text: #f0f6fc;
+      --text-secondary: #8b949e;
+      --text-dim: #6e7681;
+      --radius: 14px;
+      --radius-sm: 8px;
+      --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: calc(75px + env(safe-area-inset-bottom));
+    }
+
+    /* Top App Bar */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(13, 17, 23, 0.88);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-badge {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: var(--accent-gradient);
+      box-shadow: 0 4px 12px var(--accent-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo-badge svg {
+      width: 22px;
+      height: 22px;
+      fill: #fff;
+    }
+
+    .brand-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-subtitle {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--danger);
+      display: inline-block;
+    }
+
+    .status-dot.active {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .icon-btn:active {
+      transform: scale(0.92);
+      background: var(--surface-hover);
+    }
+
+    .icon-btn svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+
+    .spin {
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Main Container */
+    main {
+      padding: 16px;
+      flex: 1;
+      max-width: 680px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* Bottom Navigation */
+    nav.bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 50;
+      background: rgba(22, 27, 34, 0.94);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-around;
+      padding: 8px 4px calc(8px + env(safe-area-inset-bottom)) 4px;
+    }
+
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      color: var(--text-secondary);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 6px 0;
+      border-radius: var(--radius-sm);
+      transition: var(--transition);
+      font-size: 0.72rem;
+      font-weight: 500;
+    }
+
+    .nav-item svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    .nav-item.active {
+      color: var(--accent);
+    }
+
+    /* Tab Panels */
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+      animation: fadeIn 0.25s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Cards */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      margin-bottom: 14px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    }
+
+    .card-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-title svg {
+      width: 18px;
+      height: 18px;
+      fill: var(--accent);
+    }
+
+    /* Connection Box */
+    .connection-box {
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 12px 0;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+
+    .connection-cmd {
+      font-size: 0.88rem;
+      color: #7ee787;
+      word-break: break-all;
+      user-select: text;
+    }
+
+    .btn-copy {
+      background: var(--surface-hover);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+      transition: var(--transition);
+    }
+
+    .btn-copy:active {
+      transform: scale(0.95);
+      background: var(--accent);
+      color: #fff;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .stat-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+    }
+
+    .stat-label {
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .stat-value {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-top: 4px;
+      color: var(--text);
+    }
+
+    /* Power Actions */
+    .power-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .btn-action {
+      flex: 1;
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.88rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: var(--transition);
+    }
+
+    .btn-action:active {
+      transform: scale(0.97);
+    }
+
+    .btn-success {
+      background: var(--success);
+      color: #fff;
+      box-shadow: 0 2px 10px var(--success-glow);
+    }
+
+    .btn-danger {
+      background: var(--danger);
+      color: #fff;
+      box-shadow: 0 2px 10px var(--danger-glow);
+    }
+
+    .btn-secondary {
+      background: var(--surface-hover);
+      color: var(--text);
+      border-color: var(--border);
+    }
+
+    /* Form Fields */
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--text-secondary);
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 11px 13px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-size: 0.88rem;
+      outline: none;
+      transition: var(--transition);
+      user-select: text;
+    }
+
+    .form-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    /* Switch Component */
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .switch-row:last-child {
+      border-bottom: none;
+    }
+
+    .switch-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+    }
+
+    .switch-desc {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: var(--surface-hover);
+      border: 1px solid var(--border);
+      border-radius: 34px;
+      transition: 0.3s;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 2px;
+      bottom: 2px;
+      background-color: white;
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+
+    input:checked + .slider {
+      background-color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(20px);
+    }
+
+    /* Log Viewer */
+    .log-box {
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.75rem;
+      color: #8b949e;
+      height: 380px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      user-select: text;
+    }
+
+    /* Key Card */
+    .key-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .key-info {
+      min-width: 0;
+    }
+
+    .key-type {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+
+    .key-comment {
+      font-size: 0.85rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Toast */
+    .toast-box {
+      position: fixed;
+      top: calc(16px + env(safe-area-inset-top));
+      left: 50%;
+      transform: translateX(-50%) translateY(-100px);
+      z-index: 200;
+      background: rgba(22, 27, 34, 0.95);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      color: var(--text);
+      padding: 12px 20px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      transition: all 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+      pointer-events: none;
+    }
+
+    .toast-box.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top App Bar -->
+  <header>
+    <div class="brand">
+      <div class="logo-badge">
+        <svg viewBox="0 0 24 24"><path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>
+      </div>
+      <div>
+        <div class="brand-title">Dropbear SSH Server</div>
+        <div class="brand-subtitle">
+          <span class="status-dot" id="header-status-dot"></span>
+          <span id="header-status-text">Checking...</span>
+        </div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="icon-btn" id="btn-refresh" title="Refresh">
+        <svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main>
+    <!-- Tab 1: Dashboard -->
+    <section class="tab-panel active" id="tab-dashboard">
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+          Quick Connect
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-secondary);">Connect from your computer terminal (PowerShell, Command Prompt, or Linux/macOS):</p>
+        
+        <div class="connection-box">
+          <span class="connection-cmd" id="conn-string">ssh root@127.0.0.1 -p 22</span>
+          <button class="btn-copy" id="btn-copy-conn">
+            <svg style="width:14px;height:14px;fill:currentColor;" viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+            Copy
+          </button>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Server State</div>
+            <div class="stat-value" id="stat-state">Running</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Listening Port</div>
+            <div class="stat-value" id="stat-port">22</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Active Sessions</div>
+            <div class="stat-value" id="stat-sessions">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Process PID</div>
+            <div class="stat-value" id="stat-pid">-</div>
+          </div>
+        </div>
+
+        <div class="power-actions">
+          <button class="btn-action btn-danger" id="btn-toggle-power">
+            Stop Server
+          </button>
+          <button class="btn-action btn-secondary" id="btn-restart-server">
+            Restart
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 2: Settings -->
+    <section class="tab-panel" id="tab-settings">
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+          Server Settings
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Listening Port</label>
+          <input type="number" class="form-input" id="cfg-port" value="22" min="1" max="65535">
+        </div>
+
+        <div class="switch-row">
+          <div>
+            <div class="switch-title">Password Authentication</div>
+            <div class="switch-desc">Allow logins using password</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="cfg-allow-pass" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="switch-row">
+          <div>
+            <div class="switch-title">Root Logins</div>
+            <div class="switch-desc">Allow direct root remote logins</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="cfg-allow-root" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <button class="btn-action btn-secondary" id="btn-save-cfg" style="width: 100%; margin-top: 14px;">
+          Save Settings & Restart Server
+        </button>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+          Change Root Password
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">New Password</label>
+          <input type="password" class="form-input" id="pass-new" placeholder="Enter new password">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Confirm Password</label>
+          <input type="password" class="form-input" id="pass-confirm" placeholder="Confirm new password">
+        </div>
+
+        <button class="btn-action btn-secondary" id="btn-change-pass" style="width: 100%;">
+          Update Password
+        </button>
+      </div>
+    </section>
+
+    <!-- Tab 3: SSH Keys -->
+    <section class="tab-panel" id="tab-keys">
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+          Authorized Public Keys
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">Public keys allowed to log into this device without password:</p>
+
+        <div id="keys-list">
+          <p style="color: var(--text-dim); font-size: 0.82rem;">No authorized keys found.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Add Public Key</div>
+        <div class="form-group">
+          <label class="form-label">Public Key String (e.g. ssh-ed25519 AAAA... user@host)</label>
+          <textarea class="form-input" id="new-key-text" rows="3" placeholder="Paste your public key here..."></textarea>
+        </div>
+        <button class="btn-action btn-secondary" id="btn-add-key" style="width: 100%;">
+          Add Public Key
+        </button>
+      </div>
+    </section>
+
+    <!-- Tab 4: Logs -->
+    <section class="tab-panel" id="tab-logs">
+      <div class="card" style="padding: 14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
+          <span style="font-size:0.88rem; font-weight:700;">Dropbear Runtime Logs</span>
+          <button class="btn-copy" id="btn-reload-logs">Refresh</button>
+        </div>
+        <div class="log-box" id="log-output">Loading logs...</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Bottom Navigation -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" onclick="switchTab('dashboard')">
+      <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+      <span>Dashboard</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('settings')">
+      <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+      <span>Settings</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('keys')">
+      <svg viewBox="0 0 24 24"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+      <span>SSH Keys</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('logs')">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+      <span>Logs</span>
+    </button>
+  </nav>
+
+  <!-- Floating Toast -->
+  <div class="toast-box" id="toast-box">
+    <span id="toast-text">Success</span>
+  </div>
+
+  <script>
+    let serverStatus = {
+      running: false,
+      pid: 0,
+      port: 22,
+      ip: "127.0.0.1",
+      sessions: 0,
+      allow_password: 1,
+      allow_root: 1
+    };
+
+    async function execShell(cmd) {
+      const api = (window.ksu || window.kernelsu);
+      if (!api || typeof api.exec !== "function") {
+        throw new Error("KernelSU/WebUI API not detected");
+      }
+
+      return new Promise((resolve, reject) => {
+        const cb = "__ssh_cb_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+        let completed = false;
+
+        const done = (ok, val) => {
+          if (completed) return;
+          completed = true;
+          try { delete window[cb]; } catch(e){}
+          ok ? resolve(String(val ?? "").trim()) : reject(new Error(String(val || "Execution failed")));
+        };
+
+        window[cb] = (code, stdout, stderr) => {
+          const exitCode = typeof code === "number" ? code : Number(code || 0);
+          done(exitCode === 0, exitCode === 0 ? stdout : (stderr || stdout || "Command failed"));
+        };
+
+        try {
+          const res = api.exec(cmd, "{}", cb);
+          if (res && typeof res.then === "function") {
+            res.then(val => done(true, val?.stdout ?? val ?? ""), err => done(false, err));
+          }
+        } catch(e) {
+          done(false, e);
+        }
+
+        setTimeout(() => { if (!completed) done(false, "Timeout"); }, 20000);
+      });
+    }
+
+    function showToast(msg) {
+      if (window.ksu?.toast) { window.ksu.toast(msg); return; }
+      if (window.kernelsu?.toast) { window.kernelsu.toast(msg); return; }
+
+      const toast = document.getElementById("toast-box");
+      document.getElementById("toast-text").innerText = msg;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2800);
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+      document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+
+      const target = document.getElementById("tab-" + tabId);
+      if (target) target.classList.add("active");
+
+      const idx = ["dashboard", "settings", "keys", "logs"].indexOf(tabId);
+      if (idx !== -1) {
+        document.querySelectorAll(".nav-item")[idx].classList.add("active");
+      }
+
+      if (tabId === "logs") loadLogs();
+      if (tabId === "keys") loadKeys();
+    }
+
+    async function loadStatus() {
+      const refreshBtn = document.getElementById("btn-refresh");
+      refreshBtn.querySelector("svg").classList.add("spin");
+
+      try {
+        const raw = await execShell("sshserverctl status-json 2>/dev/null || echo '{}'");
+        serverStatus = Object.assign(serverStatus, JSON.parse(raw || "{}"));
+      } catch(e) {
+        console.error("Failed to parse status:", e);
+      } finally {
+        refreshBtn.querySelector("svg").classList.remove("spin");
+      }
+
+      renderStatus();
+    }
+
+    function renderStatus() {
+      const isRunning = !!serverStatus.running;
+      const dot = document.getElementById("header-status-dot");
+      const text = document.getElementById("header-status-text");
+      const toggleBtn = document.getElementById("btn-toggle-power");
+
+      dot.classList.toggle("active", isRunning);
+      text.innerText = isRunning ? `Running (Port ${serverStatus.port})` : "Stopped";
+
+      document.getElementById("stat-state").innerText = isRunning ? "Running" : "Stopped";
+      document.getElementById("stat-state").style.color = isRunning ? "var(--success)" : "var(--danger)";
+      document.getElementById("stat-port").innerText = serverStatus.port;
+      document.getElementById("stat-sessions").innerText = serverStatus.sessions;
+      document.getElementById("stat-pid").innerText = isRunning ? serverStatus.pid : "-";
+
+      const connStr = `ssh root@${serverStatus.ip} -p ${serverStatus.port}`;
+      document.getElementById("conn-string").innerText = connStr;
+
+      if (isRunning) {
+        toggleBtn.innerText = "Stop Server";
+        toggleBtn.className = "btn-action btn-danger";
+      } else {
+        toggleBtn.innerText = "Start Server";
+        toggleBtn.className = "btn-action btn-success";
+      }
+
+      // Populate config form
+      document.getElementById("cfg-port").value = serverStatus.port;
+      document.getElementById("cfg-allow-pass").checked = serverStatus.allow_password != 0;
+      document.getElementById("cfg-allow-root").checked = serverStatus.allow_root != 0;
+    }
+
+    // Toggle Power
+    document.getElementById("btn-toggle-power").onclick = async function() {
+      const isRunning = !!serverStatus.running;
+      const cmd = isRunning ? "sshserverctl stop" : "sshserverctl start";
+      showToast(isRunning ? "Stopping SSH Server..." : "Starting SSH Server...");
+      try {
+        await execShell(cmd);
+        await loadStatus();
+        showToast(isRunning ? "Server Stopped" : "Server Started");
+      } catch(e) {
+        showToast("Error: " + e.message);
+      }
+    };
+
+    // Restart Server
+    document.getElementById("btn-restart-server").onclick = async function() {
+      showToast("Restarting SSH Server...");
+      try {
+        await execShell("sshserverctl restart");
+        await loadStatus();
+        showToast("Server Restarted");
+      } catch(e) {
+        showToast("Error: " + e.message);
+      }
+    };
+
+    // Copy command
+    document.getElementById("btn-copy-conn").onclick = function() {
+      const connStr = document.getElementById("conn-string").innerText;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(connStr).then(() => showToast("Command copied!"));
+      } else {
+        showToast("Copied: " + connStr);
+      }
+    };
+
+    // Save Settings
+    document.getElementById("btn-save-cfg").onclick = async function() {
+      const port = document.getElementById("cfg-port").value.trim() || "22";
+      const ap = document.getElementById("cfg-allow-pass").checked ? "1" : "0";
+      const ar = document.getElementById("cfg-allow-root").checked ? "1" : "0";
+
+      showToast("Saving settings...");
+      try {
+        await execShell(`sshserverctl set-config ${port} ${ap} ${ar}`);
+        await loadStatus();
+        showToast("Settings saved and applied!");
+      } catch(e) {
+        showToast("Error: " + e.message);
+      }
+    };
+
+    // Change Password
+    document.getElementById("btn-change-pass").onclick = async function() {
+      const p1 = document.getElementById("pass-new").value;
+      const p2 = document.getElementById("pass-confirm").value;
+
+      if (!p1) {
+        showToast("Password cannot be empty");
+        return;
+      }
+      if (p1 !== p2) {
+        showToast("Passwords do not match");
+        return;
+      }
+
+      showToast("Updating password...");
+      try {
+        await execShell(`sshserverctl set-password "${p1}"`);
+        document.getElementById("pass-new").value = "";
+        document.getElementById("pass-confirm").value = "";
+        showToast("Root password updated successfully!");
+      } catch(e) {
+        showToast("Error: " + e.message);
+      }
+    };
+
+    // Load Keys
+    async function loadKeys() {
+      const list = document.getElementById("keys-list");
+      try {
+        const raw = await execShell("sshserverctl get-keys 2>/dev/null || echo '[]'");
+        const keys = JSON.parse(raw || "[]");
+
+        if (keys.length === 0) {
+          list.innerHTML = `<p style="color: var(--text-dim); font-size: 0.82rem;">No authorized public keys installed.</p>`;
+          return;
+        }
+
+        list.innerHTML = keys.map(k => `
+          <div class="key-item">
+            <div class="key-info">
+              <div class="key-type">${k.type}</div>
+              <div class="key-comment">${k.comment}</div>
+            </div>
+            <button class="btn-copy" style="color: var(--danger); border-color: rgba(248,81,73,0.3);" onclick="removeKey(${k.index})">
+              Delete
+            </button>
+          </div>
+        `).join("");
+      } catch(e) {
+        list.innerHTML = `<p style="color: var(--danger); font-size: 0.82rem;">Failed to load keys: ${e.message}</p>`;
+      }
+    }
+
+    async function removeKey(idx) {
+      showToast("Deleting key...");
+      try {
+        await execShell(`sshserverctl remove-key ${idx}`);
+        await loadKeys();
+        showToast("Key deleted");
+      } catch(e) {
+        showToast("Error: " + e.message);
+      }
+    }
+
+    document.getElementById("btn-add-key").onclick = async function() {
+      const text = document.getElementById("new-key-text").value.trim();
+      if (!text) {
+        showToast("Please paste a public key");
+        return;
+      }
+
+      showToast("Adding key...");
+      try {
+        await execShell(`sshserverctl add-key "${text}"`);
+        document.getElementById("new-key-text").value = "";
+        await loadKeys();
+        showToast("Public key added successfully!");
+      } catch(e) {
+        showToast("Error: " + e.message);
+      }
+    };
+
+    // Load Logs
+    async function loadLogs() {
+      const box = document.getElementById("log-output");
+      box.innerText = "Loading logs...";
+      try {
+        const logs = await execShell("sshserverctl get-logs 2>/dev/null || echo '(No logs)'");
+        box.innerText = logs || "(No logs)";
+        box.scrollTop = box.scrollHeight;
+      } catch(e) {
+        box.innerText = "Failed to load logs: " + e.message;
+      }
+    }
+
+    document.getElementById("btn-reload-logs").onclick = loadLogs;
+    document.getElementById("btn-refresh").onclick = loadStatus;
+
+    window.addEventListener("DOMContentLoaded", () => {
+      loadStatus();
+    });
+  </script>
+</body>
+</html>

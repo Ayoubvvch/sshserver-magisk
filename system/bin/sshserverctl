@@ -1,9 +1,12 @@
 #!/system/bin/sh
 # Control script for Dropbear SSH Server
+# Author: Ayoubvvch
 
 CONFIG_FILE="/data/adb/sshserver/config.env"
 PIDFILE="/data/adb/sshserver/dropbear.pid"
 HOSTKEY="/data/adb/sshserver/keys/dropbear_ed25519_host_key"
+AUTH_KEYS="/data/adb/sshserver/.ssh/authorized_keys"
+LOGFILE="/data/adb/sshserver/log/dropbear.log"
 
 # Ensure root utilities, Magisk, and our bin folder are in PATH
 export PATH=/data/adb/magisk:/data/adb/sshserver/bin:$PATH:/system/bin:/system/xbin:/vendor/bin:/apex/com.android.runtime/bin:/data/data/com.termux/files/usr/bin
@@ -23,6 +26,82 @@ PORT=${PORT:-22}
 ALLOW_PASSWORD=${ALLOW_PASSWORD:-1}
 ALLOW_ROOT=${ALLOW_ROOT:-1}
 
+get_device_ip() {
+  local ip=""
+  # Try route to 1.1.1.1
+  ip=$(ip route get 1.1.1.1 2>/dev/null | grep -oE 'src [0-9.]+' | cut -d' ' -f2)
+  # Fallback to wlan0
+  if [ -z "$ip" ]; then
+    ip=$(ip addr show wlan0 2>/dev/null | grep -oE 'inet [0-9.]+' | head -n 1 | cut -d' ' -f2)
+  fi
+  # Fallback to getprop
+  if [ -z "$ip" ]; then
+    ip=$(getprop dhcp.wlan0.ipaddress 2>/dev/null)
+  fi
+  echo "${ip:-127.0.0.1}"
+}
+
+get_active_sessions() {
+  local count=0
+  if [ -f "$PIDFILE" ]; then
+    local ppid
+    ppid=$(cat "$PIDFILE" 2>/dev/null)
+    if [ -n "$ppid" ]; then
+      count=$(ps -A -o PPID,NAME 2>/dev/null | grep -E "^ *${ppid} +dropbear" | wc -l)
+    fi
+  fi
+  echo "$count"
+}
+
+hash_password() {
+  local pass="$1"
+  local hash=""
+
+  if which openssl >/dev/null 2>&1; then
+    hash=$(openssl passwd -6 "$pass" 2>/dev/null)
+  elif [ -x /data/adb/magisk/busybox ] && /data/adb/magisk/busybox --list | grep -q "^cryptpw$"; then
+    hash=$(echo -n "$pass" | /data/adb/magisk/busybox cryptpw -m sha512 2>/dev/null)
+  elif which busybox >/dev/null 2>&1 && busybox --list | grep -q "^cryptpw$"; then
+    hash=$(echo -n "$pass" | busybox cryptpw -m sha512 2>/dev/null)
+  elif which python3 >/dev/null 2>&1; then
+    hash=$(python3 -c "import crypt; print(crypt.crypt('$pass', crypt.mksalt(crypt.METHOD_SHA512)))" 2>/dev/null)
+  fi
+
+  echo "$hash"
+}
+
+apply_new_hash() {
+  local hash="$1"
+  if [ -z "$hash" ]; then
+    return 1
+  fi
+
+  # Update config.env preserving other keys
+  local p="${PORT:-22}"
+  local ap="${ALLOW_PASSWORD:-1}"
+  local ar="${ALLOW_ROOT:-1}"
+
+  cat <<EOF > "$CONFIG_FILE"
+PORT=$p
+ALLOW_PASSWORD=$ap
+ALLOW_ROOT=$ar
+PASSWORD_HASH='$hash'
+PASSWORD=''
+EOF
+  chmod 600 "$CONFIG_FILE"
+
+  # Write to systemless passwd file
+  local mod_passwd="/data/adb/modules/sshserverpwd/system/etc/passwd"
+  if [ -d "/data/adb/modules/sshserverpwd/system/etc" ]; then
+    echo "root:$hash:0:0:root:/data/adb/sshserver:/system/bin/sh" > "$mod_passwd"
+    chmod 644 "$mod_passwd"
+    chown 0:0 "$mod_passwd"
+
+    mount -o bind "$mod_passwd" /system/etc/passwd 2>/dev/null || mount -o bind "$mod_passwd" /etc/passwd 2>/dev/null || true
+  fi
+  return 0
+}
+
 case "$1" in
   start)
     if [ -f "$PIDFILE" ]; then
@@ -33,13 +112,13 @@ case "$1" in
       fi
     fi
 
-    # Check if hostkey exists, if not generate it
     if [ ! -f "$HOSTKEY" ]; then
       echo "Generating Ed25519 host key at $HOSTKEY..."
+      mkdir -p "$(dirname "$HOSTKEY")"
       /data/adb/sshserver/bin/dropbearkey -t ed25519 -f "$HOSTKEY"
     fi
 
-    # Compose arguments
+    mkdir -p "$(dirname "$LOGFILE")"
     ARGS="-r $HOSTKEY -p $PORT -P $PIDFILE -E -e -K 30"
     if [ "$ALLOW_PASSWORD" = "0" ]; then
       ARGS="$ARGS -s"
@@ -56,6 +135,7 @@ case "$1" in
       echo "Failed to start SSH Server."
     fi
     ;;
+
   stop)
     if [ -f "$PIDFILE" ]; then
       PID=$(cat "$PIDFILE" 2>/dev/null)
@@ -72,16 +152,20 @@ case "$1" in
       echo "SSH Server is not running."
     fi
     ;;
+
   restart)
     $0 stop
     sleep 1
     $0 start
     ;;
+
   status)
     if [ -f "$PIDFILE" ]; then
       PID=$(cat "$PIDFILE" 2>/dev/null)
       if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
         echo "SSH Server is running (PID $PID) on port $PORT."
+        echo "IP: $(get_device_ip)"
+        echo "Active Sessions: $(get_active_sessions)"
       else
         echo "SSH Server PID file found but process is not running (stale PID)."
       fi
@@ -89,33 +173,131 @@ case "$1" in
       echo "SSH Server is not running."
     fi
     ;;
-  passwd)
-    # Check if we have a way to generate the hash
-    GEN_METHOD=""
-    if which openssl >/dev/null 2>&1; then
-      GEN_METHOD="openssl"
-    elif [ -x /data/adb/magisk/busybox ] && /data/adb/magisk/busybox --list | grep -q "^cryptpw$"; then
-      GEN_METHOD="magisk-busybox"
-    elif which busybox >/dev/null 2>&1 && busybox --list | grep -q "^cryptpw$"; then
-      GEN_METHOD="system-busybox"
-    elif which python3 >/dev/null 2>&1; then
-      if python3 -c "import crypt" 2>/dev/null; then
-        GEN_METHOD="python3"
+
+  status-json)
+    IS_RUNNING=false
+    CUR_PID=0
+    if [ -f "$PIDFILE" ]; then
+      PID=$(cat "$PIDFILE" 2>/dev/null)
+      if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+        IS_RUNNING=true
+        CUR_PID=$PID
       fi
     fi
+    IP=$(get_device_ip)
+    SESSIONS=$(get_active_sessions)
+    HAS_PASSWD=false
+    [ -n "$PASSWORD_HASH" ] && HAS_PASSWD=true
 
-    if [ -z "$GEN_METHOD" ]; then
-      echo "------------------------------------------------------------------"
-      echo "ERROR: No password hashing tool (openssl/busybox/python) found."
-      echo "To change the password, please generate a SHA-512 crypt hash on your PC:"
-      echo "  openssl passwd -6 'your_password'"
-      echo "Then, open /data/adb/sshserver/config.env and set:"
-      echo "  PASSWORD_HASH='your_generated_hash'"
-      echo "------------------------------------------------------------------"
+    cat <<EOF
+{
+  "running": $IS_RUNNING,
+  "pid": $CUR_PID,
+  "port": $PORT,
+  "allow_password": $ALLOW_PASSWORD,
+  "allow_root": $ALLOW_ROOT,
+  "ip": "$IP",
+  "sessions": $SESSIONS,
+  "has_password": $HAS_PASSWD
+}
+EOF
+    ;;
+
+  set-config)
+    NEW_PORT="${2:-$PORT}"
+    NEW_AP="${3:-$ALLOW_PASSWORD}"
+    NEW_AR="${4:-$ALLOW_ROOT}"
+
+    cat <<EOF > "$CONFIG_FILE"
+PORT=$NEW_PORT
+ALLOW_PASSWORD=$NEW_AP
+ALLOW_ROOT=$NEW_AR
+PASSWORD_HASH='$PASSWORD_HASH'
+PASSWORD=''
+EOF
+    chmod 600 "$CONFIG_FILE"
+    echo "Configuration saved."
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+      echo "Restarting server to apply new settings..."
+      $0 restart
+    fi
+    ;;
+
+  set-password)
+    NEW_PASS="$2"
+    if [ -z "$NEW_PASS" ]; then
+      echo "Error: Password cannot be empty."
       exit 1
     fi
+    HASH=$(hash_password "$NEW_PASS")
+    if [ -z "$HASH" ]; then
+      echo "Error: Failed to hash password."
+      exit 1
+    fi
+    if apply_new_hash "$HASH"; then
+      echo "Password successfully updated!"
+    else
+      echo "Error updating password."
+      exit 1
+    fi
+    ;;
 
-    # Read password interactively
+  get-keys)
+    echo "["
+    if [ -f "$AUTH_KEYS" ]; then
+      FIRST=1
+      INDEX=1
+      while IFS= read -r line || [ -n "$line" ]; do
+        # Trim and ignore comments/blank lines
+        trimmed=$(echo "$line" | sed 's/^[ \t]*//;s/[ \t]*$//')
+        case "$trimmed" in
+          \#*|"") continue ;;
+        esac
+        ktype=$(echo "$trimmed" | awk '{print $1}')
+        kcomment=$(echo "$trimmed" | cut -d' ' -f3-)
+        [ "$FIRST" -eq 1 ] && FIRST=0 || printf ',\n'
+        printf '  {"index":%d,"type":"%s","comment":"%s"}' "$INDEX" "$ktype" "${kcomment:-Public Key}"
+        INDEX=$((INDEX + 1))
+      done < "$AUTH_KEYS"
+    fi
+    echo ""
+    echo "]"
+    ;;
+
+  add-key)
+    KEY_STR="$2"
+    if [ -z "$KEY_STR" ]; then
+      echo "Error: No key provided."
+      exit 1
+    fi
+    mkdir -p "$(dirname "$AUTH_KEYS")"
+    chmod 700 "$(dirname "$AUTH_KEYS")"
+    echo "$KEY_STR" >> "$AUTH_KEYS"
+    chmod 600 "$AUTH_KEYS"
+    chown 0:0 "$AUTH_KEYS"
+    echo "Public key added successfully."
+    ;;
+
+  remove-key)
+    INDEX="$2"
+    if [ -z "$INDEX" ] || [ ! -f "$AUTH_KEYS" ]; then
+      echo "Error: Invalid index or no authorized_keys file."
+      exit 1
+    fi
+    # Filter out blank lines and comments, delete by index
+    sed -i "${INDEX}d" "$AUTH_KEYS"
+    echo "Key at index $INDEX removed."
+    ;;
+
+  get-logs)
+    if [ -f "$LOGFILE" ]; then
+      tail -n 60 "$LOGFILE"
+    else
+      echo "(No log file found at $LOGFILE)"
+    fi
+    ;;
+
+  passwd)
     echo -n "Enter new root password: "
     stty -echo 2>/dev/null
     read -r NEW_PASS
@@ -133,70 +315,11 @@ case "$1" in
       exit 1
     fi
 
-    if [ -z "$NEW_PASS" ]; then
-      echo "Error: Password cannot be empty!"
-      exit 1
-    fi
-
-    # Generate hash based on available tool
-    HASH=""
-    case "$GEN_METHOD" in
-      openssl)
-        HASH=$(openssl passwd -6 "$NEW_PASS" 2>/dev/null)
-        ;;
-      magisk-busybox)
-        HASH=$(echo -n "$NEW_PASS" | /data/adb/magisk/busybox cryptpw -m sha512 2>/dev/null)
-        ;;
-      system-busybox)
-        HASH=$(echo -n "$NEW_PASS" | busybox cryptpw -m sha512 2>/dev/null)
-        ;;
-      python3)
-        HASH=$(python3 -c "import crypt; print(crypt.crypt('$NEW_PASS', crypt.mksalt(crypt.METHOD_SHA512)))" 2>/dev/null)
-        ;;
-    esac
-
-    if [ -z "$HASH" ]; then
-      echo "Error: Failed to generate password hash!"
-      exit 1
-    fi
-
-    # Save to config.env with SINGLE QUOTES to avoid shell expansion ($)
-    if [ -f "$CONFIG_FILE" ]; then
-      TEMP_CONFIG=$(grep -v "^PASSWORD=" "$CONFIG_FILE" | grep -v "^PASSWORD_HASH=")
-      echo "$TEMP_CONFIG" > "$CONFIG_FILE"
-      echo "PASSWORD_HASH='$HASH'" >> "$CONFIG_FILE"
-      echo "PASSWORD=''" >> "$CONFIG_FILE"
-    else
-      echo "PORT=22" > "$CONFIG_FILE"
-      echo "ALLOW_PASSWORD=1" >> "$CONFIG_FILE"
-      echo "ALLOW_ROOT=1" >> "$CONFIG_FILE"
-      echo "PASSWORD_HASH='$HASH'" >> "$CONFIG_FILE"
-      echo "PASSWORD=''" >> "$CONFIG_FILE"
-    fi
-
-    # Write immediately to systemless passwd file
-    MOD_PASSWD="/data/adb/modules/sshserverpwd/system/etc/passwd"
-    if [ -d "/data/adb/modules/sshserverpwd/system/etc" ]; then
-      echo "root:$HASH:0:0:root:/data/adb/sshserver:/system/bin/sh" > "$MOD_PASSWD"
-      chmod 644 "$MOD_PASSWD"
-      chown 0:0 "$MOD_PASSWD"
-
-      # Try to bind-mount to system instantly so it works without rebooting
-      if mount -o bind "$MOD_PASSWD" /system/etc/passwd 2>/dev/null; then
-        echo "Password updated successfully! Applied instantly."
-      else
-        if mount -o bind "$MOD_PASSWD" /etc/passwd 2>/dev/null; then
-          echo "Password updated successfully! Applied instantly."
-        else
-          echo "Password updated! Please reboot your device to apply."
-        fi
-      fi
-    else
-      echo "Password updated in config! Please reboot your device to apply."
-    fi
+    $0 set-password "$NEW_PASS"
     ;;
+
   *)
-    echo "Usage: sshserverctl {start|stop|restart|status|passwd}"
+    echo "Usage: sshserverctl {start|stop|restart|status|status-json|set-config|set-password|get-keys|add-key|remove-key|get-logs|passwd}"
     exit 1
     ;;
 esac

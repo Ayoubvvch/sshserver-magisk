@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.4.0
+- **KsuWebUI & KernelSU Interactive Dashboard**: Added a comprehensive WebUI (`webroot/index.html`) providing mobile graphical control over the SSH and SFTP server.
+- **One-Tap Quick Connect**: Automatically displays local Wi-Fi / network IP address with a one-click copyable SSH connection command.
+- **Server Power & Session Management**: Start, stop, or restart Dropbear daemon directly from the UI with real-time active session monitoring.
+- **In-App Password & Configuration Editor**: Change root password (with SHA-512 crypt hashing) and update listening port or authentication modes without touching terminal files.
+- **SSH Authorized Keys Manager**: View, add from clipboard, and remove authorized public keys (`id_ed25519.pub`, `id_rsa.pub`) visually.
+- **Live Runtime Log Viewer**: Inspect Dropbear daemon logs directly inside the app for immediate connection troubleshooting.
+- **CLI Backend Enhancements**: Expanded `sshserverctl` with `status-json`, `set-config`, `set-password`, `get-keys`, `add-key`, `remove-key`, and `get-logs`.
+
 ## v1.3.0
 - **Native Magisk Update Channel**: Added native `updateJson` support so updates can be discovered and installed directly inside Magisk App, KernelSU, and APatch.
 - **Automated CI/CD Release Pipeline**: Added and improved GitHub Actions workflow to automatically package and release flashable module assets.
