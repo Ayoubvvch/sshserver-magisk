@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.0
+- **Native Magisk Update Channel**: Added native `updateJson` support so updates can be discovered and installed directly inside Magisk App, KernelSU, and APatch.
+- **Automated CI/CD Release Pipeline**: Added and improved GitHub Actions workflow to automatically package and release flashable module assets.
+- **Changelog & Documentation**: Added structured changelog and updated documentation.
+
 ## v1.2.0
 - **Robust Password Hashing**: Fixed shell variable expansion where SHA-512 crypt prefixes (`$6$`) could be stripped by `sh`. Added safe regex parsing and single-quote preservation in `config.env`, `post-fs-data.sh`, and `sshserverctl passwd`.
 - **Comprehensive PATH & Root Environment**: Sessions automatically inherit Magisk binaries (`/data/adb/magisk`), system utilities (`/system/bin`, `/vendor/bin`, `/apex`), and Termux paths.
