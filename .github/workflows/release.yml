@@ -16,9 +16,18 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Build static mkpasswd arm64 binary
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          mkdir -p sshserver/bin
+          aarch64-linux-gnu-gcc -static -O3 tools/mkpasswd.c -o sshserver/bin/mkpasswd
+          chmod 700 sshserver/bin/mkpasswd
+          file sshserver/bin/mkpasswd
+
       - name: Package Magisk Module ZIP
         run: |
-          zip -r9 sshserver-magisk.zip . -x ".git*" ".github*" "*.zip" "README.md" "LICENSE" "update.json" "changelog.md"
+          zip -r9 sshserver-magisk.zip . -x ".git*" ".github*" "*.zip" "README.md" "LICENSE" "update.json" "changelog.md" "tools*"
           ls -la sshserver-magisk.zip
 
       - name: Create or Update GitHub Release

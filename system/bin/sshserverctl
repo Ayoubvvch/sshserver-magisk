@@ -7,6 +7,7 @@ PIDFILE="/data/adb/sshserver/dropbear.pid"
 HOSTKEY="/data/adb/sshserver/keys/dropbear_ed25519_host_key"
 AUTH_KEYS="/data/adb/sshserver/.ssh/authorized_keys"
 LOGFILE="/data/adb/sshserver/log/dropbear.log"
+MKPASSWD="/data/adb/sshserver/bin/mkpasswd"
 
 # Ensure root utilities, Magisk, and our bin folder are in PATH
 export PATH=/data/adb/magisk:/data/adb/sshserver/bin:$PATH:/system/bin:/system/xbin:/vendor/bin:/apex/com.android.runtime/bin:/data/data/com.termux/files/usr/bin
@@ -28,13 +29,10 @@ ALLOW_ROOT=${ALLOW_ROOT:-1}
 
 get_device_ip() {
   local ip=""
-  # Try route to 1.1.1.1
   ip=$(ip route get 1.1.1.1 2>/dev/null | grep -oE 'src [0-9.]+' | cut -d' ' -f2)
-  # Fallback to wlan0
   if [ -z "$ip" ]; then
     ip=$(ip addr show wlan0 2>/dev/null | grep -oE 'inet [0-9.]+' | head -n 1 | cut -d' ' -f2)
   fi
-  # Fallback to getprop
   if [ -z "$ip" ]; then
     ip=$(getprop dhcp.wlan0.ipaddress 2>/dev/null)
   fi
@@ -57,7 +55,9 @@ hash_password() {
   local pass="$1"
   local hash=""
 
-  if which openssl >/dev/null 2>&1; then
+  if [ -x "$MKPASSWD" ]; then
+    hash=$("$MKPASSWD" "$pass" 2>/dev/null)
+  elif which openssl >/dev/null 2>&1; then
     hash=$(openssl passwd -6 "$pass" 2>/dev/null)
   elif [ -x /data/adb/magisk/busybox ] && /data/adb/magisk/busybox --list | grep -q "^cryptpw$"; then
     hash=$(echo -n "$pass" | /data/adb/magisk/busybox cryptpw -m sha512 2>/dev/null)
@@ -231,7 +231,7 @@ EOF
     fi
     HASH=$(hash_password "$NEW_PASS")
     if [ -z "$HASH" ]; then
-      echo "Error: Failed to hash password."
+      echo "Error: No password hashing tool found on device."
       exit 1
     fi
     if apply_new_hash "$HASH"; then
@@ -242,13 +242,26 @@ EOF
     fi
     ;;
 
+  set-hash)
+    HASH="$2"
+    if [ -z "$HASH" ]; then
+      echo "Error: Hash cannot be empty."
+      exit 1
+    fi
+    if apply_new_hash "$HASH"; then
+      echo "Password hash successfully updated!"
+    else
+      echo "Error updating password hash."
+      exit 1
+    fi
+    ;;
+
   get-keys)
     echo "["
     if [ -f "$AUTH_KEYS" ]; then
       FIRST=1
       INDEX=1
       while IFS= read -r line || [ -n "$line" ]; do
-        # Trim and ignore comments/blank lines
         trimmed=$(echo "$line" | sed 's/^[ \t]*//;s/[ \t]*$//')
         case "$trimmed" in
           \#*|"") continue ;;
@@ -284,7 +297,6 @@ EOF
       echo "Error: Invalid index or no authorized_keys file."
       exit 1
     fi
-    # Filter out blank lines and comments, delete by index
     sed -i "${INDEX}d" "$AUTH_KEYS"
     echo "Key at index $INDEX removed."
     ;;
@@ -319,7 +331,7 @@ EOF
     ;;
 
   *)
-    echo "Usage: sshserverctl {start|stop|restart|status|status-json|set-config|set-password|get-keys|add-key|remove-key|get-logs|passwd}"
+    echo "Usage: sshserverctl {start|stop|restart|status|status-json|set-config|set-password|set-hash|get-keys|add-key|remove-key|get-logs|passwd}"
     exit 1
     ;;
 esac

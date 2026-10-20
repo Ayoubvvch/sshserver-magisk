@@ -1,9 +1,9 @@
 id=sshserverpwd
 name=Dropbear SSH & SFTP Server
-version=v1.4.0
-versionCode=10400
+version=v1.4.1
+versionCode=10410
 author=Ayoubvvch
-description=Statically-linked Dropbear SSH and SFTP server for Android with public key and password authentication. Features an interactive KsuWebUI management dashboard and CLI. Android 10-15+ compatible.
+description=Statically-linked Dropbear SSH and SFTP server for Android with public key and password authentication. Features an interactive KsuWebUI management dashboard, static mkpasswd hasher, and CLI. Android 10-15+ compatible.
 updateJson=https://raw.githubusercontent.com/Ayoubvvch/sshserver-magisk/main/update.json
 webuiIcon=icon.png
 actionIcon=icon.png

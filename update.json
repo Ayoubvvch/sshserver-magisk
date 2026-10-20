@@ -1,6 +1,6 @@
 {
-  "version": "v1.4.0",
-  "versionCode": 10400,
-  "zipUrl": "https://github.com/Ayoubvvch/sshserver-magisk/releases/download/v1.4.0/sshserver-magisk.zip",
+  "version": "v1.4.1",
+  "versionCode": 10410,
+  "zipUrl": "https://github.com/Ayoubvvch/sshserver-magisk/releases/download/v1.4.1/sshserver-magisk.zip",
   "changelog": "https://raw.githubusercontent.com/Ayoubvvch/sshserver-magisk/main/changelog.md"
 }

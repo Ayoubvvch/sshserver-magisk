@@ -32,7 +32,13 @@ if [ -f "$MODDIR/sshserver/bin/dropbear" ] && [ -f "$MODDIR/sshserver/bin/dropbe
   cp "$MODDIR/sshserver/bin/dropbearkey" /data/adb/sshserver/bin/dropbearkey && \
   cp "$MODDIR/sshserver/sftp" /data/adb/sshserver/sftp && \
   chmod 700 /data/adb/sshserver/bin/dropbear /data/adb/sshserver/bin/dropbearkey /data/adb/sshserver/sftp
-  log "- Copied dropbear & sftp binaries"
+
+  if [ -f "$MODDIR/sshserver/bin/mkpasswd" ]; then
+    cp "$MODDIR/sshserver/bin/mkpasswd" /data/adb/sshserver/bin/mkpasswd
+    chmod 700 /data/adb/sshserver/bin/mkpasswd
+  fi
+
+  log "- Copied dropbear, dropbearkey & mkpasswd binaries"
 else
   abort "! ERROR: Missing binaries in module package. Installation aborted."
 fi

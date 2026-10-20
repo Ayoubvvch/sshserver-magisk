@@ -1,11 +1,16 @@
 # Changelog
 
+## v1.4.1
+- **Standalone Password Hasher (`mkpasswd`)**: Integrated a statically-linked ARM64 `mkpasswd` binary into the module. Resolves password hashing failures on devices lacking `openssl` or `python`.
+- **Direct Hash Application (`set-hash`)**: Added `sshserverctl set-hash` command to allow setting pre-computed password hashes directly.
+- **Enhanced Reliability**: Seamless password updating both from the KsuWebUI interface and interactive CLI.
+
 ## v1.4.0
 - **KsuWebUI & KernelSU Interactive Dashboard**: Added a comprehensive WebUI (`webroot/index.html`) providing mobile graphical control over the SSH and SFTP server.
 - **One-Tap Quick Connect**: Automatically displays local Wi-Fi / network IP address with a one-click copyable SSH connection command.
 - **Server Power & Session Management**: Start, stop, or restart Dropbear daemon directly from the UI with real-time active session monitoring.
 - **In-App Password & Configuration Editor**: Change root password (with SHA-512 crypt hashing) and update listening port or authentication modes without touching terminal files.
-- **SSH Authorized Keys Manager**: View, add from clipboard, and remove authorized public keys (`id_ed25519.pub`, `id_rsa.pub`) visually.
+- **SSH Authorized Keys Manager**: View, add public keys from clipboard, and remove authorized keys with ease.
 - **Live Runtime Log Viewer**: Inspect Dropbear daemon logs directly inside the app for immediate connection troubleshooting.
 - **CLI Backend Enhancements**: Expanded `sshserverctl` with `status-json`, `set-config`, `set-password`, `get-keys`, `add-key`, `remove-key`, and `get-logs`.
 
